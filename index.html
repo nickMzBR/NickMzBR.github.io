@@ -4,8 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#181818">
-<meta name="apple-mobile-web-app-capable" content="yes">
-
 <title>Sala Do Futuro</title>
 
 <script type="module">
@@ -29,14 +27,12 @@ let currentUser=null;
 let replyTo=null;
 let typingTimeout;
 
-/* LOGIN */
 window.login = async ()=>{
   const nick=nickInput.value.trim();
   const senha=senhaInput.value.trim();
   if(!nick||!senha) return;
 
   const snap=await get(ref(db,"users/"+nick));
-
   if(snap.exists()){
     if(snap.val().senha!==senha){
       loginMsg.innerText="Senha errada";
@@ -54,7 +50,6 @@ window.login = async ()=>{
   }
 };
 
-/* REGISTRO */
 let profileBase64="";
 profileFile.onchange=e=>{
   const r=new FileReader();
@@ -82,7 +77,6 @@ window.chooseProfile=async()=>{
   loginMsg.innerText="Conta criada. Aguarde.";
 };
 
-/* ENVIAR */
 window.sendMsg=async()=>{
   const msg=msgInput.value.trim();
   const file=msgFile.files[0];
@@ -118,7 +112,6 @@ window.sendMsg=async()=>{
   replyInfo.innerText="";
 };
 
-/* CHAT */
 onChildAdded(ref(db,"chat"),snap=>{
   const d=snap.val();
   const div=document.createElement("div");
@@ -134,19 +127,10 @@ onChildAdded(ref(db,"chat"),snap=>{
     </div>
   `;
 
-  div.onmousedown=e=>div.sx=e.clientX;
-  div.onmouseup=e=>{
-    if(e.clientX-div.sx>50){
-      replyTo={nick:d.nick,msg:d.msg};
-      replyInfo.innerText="Respondendo a "+d.nick;
-    }
-  };
-
   chat.appendChild(div);
   chat.scrollTop=chat.scrollHeight;
 });
 
-/* TYPING */
 msgInput.oninput=async()=>{
   if(!currentUser) return;
   await set(ref(db,"typing/"+currentUser),true);
@@ -160,32 +144,9 @@ onValue(ref(db,"typing"),snap=>{
   typing.innerText=u.length?u.join(", ")+" digitando…":"";
 });
 
-/* ADMIN */
-onValue(ref(db,"users"),snap=>{
-  if(currentUser!=="ADMIN") return;
-  adminMenu.style.display="block";
-  pendingList.innerHTML="";
-  snap.forEach(u=>{
-    if(!u.val().verified){
-      const li=document.createElement("li");
-      li.innerHTML=`
-        ${u.key}
-        <button onclick="approve('${u.key}')">✅</button>
-        <button onclick="banUser('${u.key}')">⛔</button>
-      `;
-      pendingList.appendChild(li);
-    }
-  });
-});
-
-window.approve=uid=>update(ref(db,"users/"+uid),{verified:true});
-window.banUser=uid=>confirm("Banir?")&&remove(ref(db,"users/"+uid));
-window.clearChat=()=>currentUser==="ADMIN"&&remove(ref(db,"chat"));
-
 function startChat(){
   loginDiv.style.display="none";
   chatDiv.style.display="flex";
-  if(currentUser==="ADMIN") adminMenu.style.display="block";
 }
 
 msgInput.addEventListener("keydown", e=>{
@@ -199,8 +160,8 @@ msgInput.addEventListener("keydown", e=>{
 html, body{
   margin:0;
   padding:0;
-  height:100%;
-  width:100%;
+  height:100dvh;
+  width:100vw;
   background:#181818;
   overflow:hidden;
   font-family:sans-serif;
@@ -210,7 +171,7 @@ html, body{
 #chatDiv{
   display:none;
   flex-direction:column;
-  height:100vh;
+  height:100dvh;
   width:100vw;
 }
 
@@ -218,6 +179,7 @@ html, body{
   flex:1;
   overflow-y:auto;
   padding:10px;
+  padding-bottom:90px;
 }
 
 .msg{
@@ -239,14 +201,6 @@ html, body{
   max-width:80%;
 }
 
-.reply{
-  font-size:12px;
-  color:#aaa;
-  border-left:2px solid #5865F2;
-  padding-left:5px;
-  margin-bottom:4px;
-}
-
 .img{
   max-width:180px;
   border-radius:6px;
@@ -254,10 +208,15 @@ html, body{
 }
 
 #inputArea{
+  position:fixed;
+  bottom:0;
+  left:0;
+  width:100%;
+  display:flex;
+  align-items:center;
+  gap:6px;
   padding:8px;
   background:#202020;
-  display:flex;
-  gap:5px;
 }
 
 #msgInput{
@@ -265,13 +224,20 @@ html, body{
   padding:10px;
   border:none;
   border-radius:20px;
+  min-width:0;
 }
 
-button{
+#msgFile{
+  width:90px;
+  font-size:12px;
+}
+
+#inputArea button{
+  flex-shrink:0;
+  padding:10px 14px;
   background:#5865F2;
   border:none;
   color:#fff;
-  padding:10px 15px;
   border-radius:20px;
   font-weight:bold;
 }
@@ -305,19 +271,12 @@ button{
 
 <div id="chatDiv">
   <div id="chat"></div>
-  <div id="replyInfo"></div>
   <div id="typing" style="font-size:12px;color:#aaa;padding-left:10px"></div>
 
   <div id="inputArea">
     <input id="msgInput" placeholder="Mensagem...">
     <input type="file" id="msgFile">
     <button onclick="sendMsg()">➤</button>
-  </div>
-
-  <div id="adminMenu" style="display:none;background:#333;padding:10px;border-radius:8px">
-    <h3>ADMIN</h3>
-    <ul id="pendingList"></ul>
-    <button onclick="clearChat()">🧹 Limpar chat</button>
   </div>
 </div>
 
