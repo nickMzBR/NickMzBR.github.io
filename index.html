@@ -3,176 +3,318 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sala do passado</title>
+<title>Sala Do Futuro</title>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { getDatabase, ref, push, onChildAdded, get, set, onValue, update, remove } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
+
+/* ================= FIREBASE ================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyCjtuE9XQtIqvw2hZqSNpkHraY2d5_2B3w",
+  authDomain: "classroom-chat-4a364.firebaseapp.com",
+  databaseURL: "https://classroom-chat-4a364-default-rtdb.firebaseio.com",
+  projectId: "classroom-chat-4a364",
+  storageBucket: "classroom-chat-4a364.appspot.com",
+  messagingSenderId: "750796804774",
+  appId: "1:750796804774:web:b1b4aafd8bc6cdd5559a67"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+let currentUser=null;
+let replyTo=null;
+let typingTimeout;
+
+/* ================= LOGIN ================= */
+window.login = async ()=>{
+  const nick=nickInput.value.trim();
+  const senha=senhaInput.value.trim();
+  if(!nick||!senha) return;
+
+  const snap=await get(ref(db,"users/"+nick));
+
+  if(snap.exists()){
+    if(snap.val().senha!==senha){
+      loginMsg.innerText="Senha errada";
+      return;
+    }
+    if(!snap.val().verified){
+      loginMsg.innerText="Conta pendente";
+      return;
+    }
+    currentUser=nick;
+    startChat();
+  }else{
+    loginDiv.style.display="none";
+    profileDiv.style.display="block";
+  }
+};
+
+/* ================= REGISTRO ================= */
+let profileBase64="";
+profileFile.onchange=e=>{
+  const r=new FileReader();
+  r.onload=ev=>{
+    profileBase64=ev.target.result;
+    profilePreview.src=profileBase64;
+  };
+  r.readAsDataURL(e.target.files[0]);
+};
+
+window.chooseProfile=async()=>{
+  const nick=nickInput.value.trim();
+  const senha=senhaInput.value.trim();
+  if(!nick||!senha||!profileBase64) return alert("Faltou coisa");
+
+  await set(ref(db,"users/"+nick),{
+    senha,
+    avatar:profileBase64,
+    color:nick==="ADMIN"?"rainbow":"#fff",
+    verified:nick==="ADMIN"
+  });
+
+  profileDiv.style.display="none";
+  loginDiv.style.display="block";
+  loginMsg.innerText="Conta criada. Aguarde.";
+};
+
+/* ================= SEND ================= */
+window.sendMsg=async()=>{
+  const msg=msgInput.value.trim();
+  const file=msgFile.files[0];
+  if(!msg&&!file) return;
+
+  const u=await get(ref(db,"users/"+currentUser));
+  if(!u.val().verified) return;
+
+  const data={
+    nick:currentUser,
+    msg,
+    img:"",
+    color:u.val().color,
+    avatar:u.val().avatar,
+    replyTo,
+    time:Date.now()
+  };
+
+  if(file){
+    const r=new FileReader();
+    r.onload=async()=>{
+      data.img=r.result;
+      await push(ref(db,"chat"),data);
+    };
+    r.readAsDataURL(file);
+  }else{
+    await push(ref(db,"chat"),data);
+  }
+
+  msgInput.value="";
+  msgFile.value="";
+  replyTo=null;
+  replyInfo.innerText="";
+};
+
+/* ================= CHAT ================= */
+onChildAdded(ref(db,"chat"),snap=>{
+  const d=snap.val();
+  const div=document.createElement("div");
+  div.className="msg";
+
+  div.innerHTML=`
+    <img class="avatar" src="${d.avatar||""}">
+    <div class="msgContent">
+      <span class="${d.color==="rainbow"?"rainbow":""}" style="color:${d.color!=="rainbow"?d.color:""}">${d.nick}</span>
+      ${d.replyTo?`<div class="reply">${d.replyTo.nick}: ${d.replyTo.msg}</div>`:""}
+      <div>${d.msg||""}</div>
+      ${d.img?`<img src="${d.img}" class="img">`:""}
+    </div>
+  `;
+
+  div.onmousedown=e=>div.sx=e.clientX;
+  div.onmouseup=e=>{
+    if(e.clientX-div.sx>50){
+      replyTo={nick:d.nick,msg:d.msg};
+      replyInfo.innerText="Respondendo a "+d.nick;
+    }
+  };
+
+  chat.appendChild(div);
+  chat.scrollTop=chat.scrollHeight;
+});
+
+/* ================= TYPING ================= */
+msgInput.oninput=async()=>{
+  if(!currentUser) return;
+  await set(ref(db,"typing/"+currentUser),true);
+  clearTimeout(typingTimeout);
+  typingTimeout=setTimeout(()=>set(ref(db,"typing/"+currentUser),false),1500);
+};
+
+onValue(ref(db,"typing"),snap=>{
+  if(!snap.exists()) return typing.innerText="";
+  const u=Object.keys(snap.val()).filter(x=>snap.val()[x]&&x!==currentUser);
+  typing.innerText=u.length?u.join(", ")+" digitando…":"";
+});
+
+/* ================= ADMIN ================= */
+onValue(ref(db,"users"),snap=>{
+  if(currentUser!=="ADMIN") return;
+  adminMenu.style.display="block";
+  pendingList.innerHTML="";
+  snap.forEach(u=>{
+    if(!u.val().verified){
+      const li=document.createElement("li");
+      li.innerHTML=`
+        ${u.key}
+        <button onclick="approve('${u.key}')">✅</button>
+        <button onclick="banUser('${u.key}')">⛔</button>
+      `;
+      pendingList.appendChild(li);
+    }
+  });
+});
+
+window.approve=uid=>update(ref(db,"users/"+uid),{verified:true});
+window.banUser=uid=>confirm("Banir?")&&remove(ref(db,"users/"+uid));
+window.clearChat=()=>currentUser==="ADMIN"&&remove(ref(db,"chat"));
+
+function startChat(){
+  loginDiv.style.display="none";
+  chatDiv.style.display="flex";
+  if(currentUser==="ADMIN") adminMenu.style.display="block";
+}
+
+msgInput.addEventListener("keydown", e=>{
+  if(e.key==="Enter") sendMsg();
+});
+</script>
 
 <style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  font-family: Arial, Helvetica, sans-serif;
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:#181818;
+  color:#fff;
+  font-family:sans-serif;
+  height:100vh;
+  display:flex;
+  flex-direction:column;
 }
 
-body {
-  display: flex;
-  height: 100vh;
-  background: #313338;
-  color: #fff;
+#chatDiv{
+  display:none;
+  flex-direction:column;
+  height:100vh;
 }
 
-/* Sidebar servidores */
-.servers {
-  width: 70px;
-  background: #1e1f22;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 10px 0;
-  gap: 10px;
+#chat{
+  flex:1;
+  overflow-y:auto;
+  padding:10px;
 }
 
-.server {
-  width: 45px;
-  height: 45px;
-  background: #5865f2;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-weight: bold;
+.msg{
+  display:flex;
+  margin-bottom:10px;
 }
 
-/* Canais */
-.channels {
-  width: 220px;
-  background: #2b2d31;
-  padding: 15px;
+.avatar{
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  margin-right:8px;
 }
 
-.channels h3 {
-  margin-bottom: 10px;
-  font-size: 14px;
-  color: #aaa;
+.msgContent{
+  background:#242424;
+  padding:8px;
+  border-radius:8px;
+  max-width:80%;
 }
 
-.channel {
-  padding: 8px;
-  border-radius: 5px;
-  cursor: pointer;
-  color: #ccc;
+.reply{
+  font-size:12px;
+  color:#aaa;
+  border-left:2px solid #5865F2;
+  padding-left:5px;
+  margin-bottom:4px;
 }
 
-.channel:hover {
-  background: #3a3c41;
-  color: #fff;
+.img{
+  max-width:180px;
+  border-radius:6px;
+  margin-top:5px;
 }
 
-/* Chat */
-.chat {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+#inputArea{
+  padding:8px;
+  background:#202020;
+  display:flex;
+  gap:5px;
 }
 
-.chat-header {
-  padding: 15px;
-  background: #2b2d31;
-  border-bottom: 1px solid #1e1f22;
-  font-weight: bold;
+#msgInput{
+  flex:1;
+  padding:10px;
+  border:none;
+  border-radius:20px;
 }
 
-.messages {
-  flex: 1;
-  padding: 15px;
-  overflow-y: auto;
+button{
+  background:#5865F2;
+  border:none;
+  color:#fff;
+  padding:10px 15px;
+  border-radius:20px;
+  font-weight:bold;
 }
 
-.message {
-  margin-bottom: 12px;
+@keyframes rainbow{
+  0%{color:red}
+  50%{color:blue}
+  100%{color:violet}
 }
 
-.message span {
-  font-weight: bold;
-  margin-right: 5px;
-}
-
-.input-area {
-  display: flex;
-  padding: 15px;
-  background: #2b2d31;
-}
-
-input {
-  flex: 1;
-  padding: 10px;
-  border-radius: 5px;
-  border: none;
-  outline: none;
-  background: #383a40;
-  color: white;
-}
-
-button {
-  margin-left: 10px;
-  padding: 10px 15px;
-  border: none;
-  border-radius: 5px;
-  background: #5865f2;
-  color: white;
-  cursor: pointer;
-}
-
-button:hover {
-  opacity: 0.9;
+.rainbow{
+  animation:rainbow 2s linear infinite;
 }
 </style>
 </head>
 
 <body>
 
-<div class="servers">
-  <div class="server">R</div>
-  <div class="server">A</div>
+<div id="loginDiv">
+  <input id="nickInput" placeholder="Nick">
+  <input id="senhaInput" type="password" placeholder="Senha">
+  <button onclick="login()">Entrar</button>
+  <p id="loginMsg"></p>
 </div>
 
-<div class="channels">
-  <h3>CANAIS</h3>
-  <div class="channel"># geral</div>
-  <div class="channel"># ia</div>
-  <div class="channel"># projetos</div>
+<div id="profileDiv" style="display:none">
+  <input type="file" id="profileFile">
+  <img id="profilePreview" width="80">
+  <button onclick="chooseProfile()">Criar conta</button>
 </div>
 
-<div class="chat">
-  <div class="chat-header">
-    # geral
+<div id="chatDiv">
+  <div id="chat"></div>
+  <div id="replyInfo"></div>
+  <div id="typing" style="font-size:12px;color:#aaa;padding-left:10px"></div>
+
+  <div id="inputArea">
+    <input id="msgInput" placeholder="Mensagem...">
+    <input type="file" id="msgFile">
+    <button onclick="sendMsg()">➤</button>
   </div>
 
-  <div class="messages" id="messages"></div>
-
-  <div class="input-area">
-    <input type="text" id="input" placeholder="Enviar mensagem...">
-    <button onclick="sendMessage()">Enviar</button>
+  <div id="adminMenu" style="display:none;background:#333;padding:10px;border-radius:8px">
+    <h3>ADMIN</h3>
+    <ul id="pendingList"></ul>
+    <button onclick="clearChat()">🧹 Limpar chat</button>
   </div>
 </div>
-
-<script>
-function sendMessage() {
-  const input = document.getElementById("input");
-  const messages = document.getElementById("messages");
-
-  if (input.value.trim() === "") return;
-
-  const msg = document.createElement("div");
-  msg.classList.add("message");
-  msg.innerHTML = "<span>Você:</span>" + input.value;
-
-  messages.appendChild(msg);
-  messages.scrollTop = messages.scrollHeight;
-
-  input.value = "";
-}
-</script>
 
 </body>
 </html>
